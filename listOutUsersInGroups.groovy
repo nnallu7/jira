@@ -1,5 +1,5 @@
 /**
- * This script is to list the AD user groups
+ * This script is to list out users in AD groups
  */
 import groovyx.net.http.HTTPBuilder;
 import groovy.json.JsonSlurper;
@@ -42,6 +42,12 @@ if(baseurl.contains('athenajira')) {
 // Defining object to access the common functions in Utility file
 GroovyShell shell = new GroovyShell();
 def utilsObj = shell.parse(new File("${script_path}/CommonModule/Utils.groovy"));
+
+def jsonSlurper = new JsonSlurper();
+def data = jsonSlurper.parse(new File("${script_path}/sd_project_list/sd_project_list_for_change_ticket.json"));
+
+def project_uses_core_sre_group = data["Core SRE Approvers"] as List;
+def project_uses_SRE_Triage_Approvers = data["SRE Triage Approvers"] as List;
 
 // Group active projects by Product Area and Project Classification
 jiraProjectKeys.each { projectKey ->
@@ -126,7 +132,7 @@ content += """
      <th class="_header_1">No.of Peer Approvers</th>
      <th class="_header_1">SME Approvers</th>
      <th class="_header_1">No.of SME Approvers</th>
-     <th class="_header_1">Difference between Peer/SME Approvers</th>
+     <th class="_header_1">Any Difference between Peer & SME Approvers List</th>
     </tr>
     """;
 
@@ -137,18 +143,35 @@ array.each { key ->
     def projectkey = key.toString()
     def groupManager = ComponentAccessor.getGroupManager()
 	def userManager = ComponentAccessor.getUserManager()
-    def peerApprovers = groupManager.getUsersInGroup("${projectkey}_Peer_Approvers")
-    def pa = [];
-    peerApprovers.each { u ->
-        pa.push(u.getDisplayName())
+    
+    def peer_approvers = []
+    def sme_approvers = []
+    
+    if(project_uses_core_sre_group.contains(projectkey)) {
+        peer_approvers = groupManager.getUsersInGroup("Core SRE Approvers");
+        sme_approvers = groupManager.getUsersInGroup("Core SRE Approvers");
+    } else {
+        if(project_uses_SRE_Triage_Approvers.contains(projectkey)) {
+            peer_approvers = groupManager.getUsersInGroup("SRE Triage Approvers");
+            sme_approvers = groupManager.getUsersInGroup("SRE Triage Approvers");
+        } else {
+            peer_approvers = groupManager.getUsersInGroup("${projectkey}_Peer_Approvers");
+            sme_approvers = groupManager.getUsersInGroup("${projectkey}_SME_Approvers");
+        }
     }
-    def no_of_peer_approvers = peerApprovers.size()
-    def smeApprovers = groupManager.getUsersInGroup("${projectkey}_SME_Approvers")
-    def sa = [];
-    smeApprovers.each { u ->
-        sa.push(u.getDisplayName())
+    
+    def peerApprovers = [];
+    peer_approvers.each { u ->
+        peerApprovers.push(u.getDisplayName())
     }
-    def no_of_sme_approvers = smeApprovers.size()
+    
+    def smeApprovers = [];
+    sme_approvers.each { u ->
+        smeApprovers.push(u.getDisplayName())
+    }
+    
+    def no_of_peer_approvers = peer_approvers.size()
+    def no_of_sme_approvers = sme_approvers.size()
     
     def projectName = ComponentAccessor.getProjectManager().getProjectObjByKey(projectkey).getName();
     def project_url = """<a href="${baseurl}/projects/${key}/issues/">${projectName}</a>""";
@@ -158,12 +181,18 @@ array.each { key ->
                 <td class="_epic_1">${count}</td>
                 <td class="_epic_1">${project_url}</td>
                 <td class="_epic_1">${projectkey}</td>
-                <td class="_epic_1">${pa.join(', ')}</td>
+                <td class="_epic_1">${peerApprovers.join(', ')}</td>
                 <td class="_epic_1">${no_of_peer_approvers}</td>
-                <td class="_epic_1">${sa.join(', ')}</td>
-                <td class="_epic_1">${no_of_sme_approvers}</td>
-                <td class="_epic_1">${no_of_peer_approvers - no_of_sme_approvers}</td>
-                </tr>"""
+                <td class="_epic_1">${smeApprovers.join(', ')}</td>
+                <td class="_epic_1">${no_of_sme_approvers}</td>"""
+    
+    if(peerApprovers != smeApprovers) {
+        content += """<td class="_epic_1"><p style='color:red;'>Yes</p></td>"""
+    } else {
+        content += """<td class="_epic_1">No</td>"""
+    }
+    
+    content += "</tr>"
     
     count += 1;
     
@@ -178,4 +207,3 @@ def emailAddr = "atlassianAdmins@athenahealth.com";
 
 utilsObj.sendEmail (emailAddr, subject, content);
 
-//End of the script;
